@@ -1,0 +1,5 @@
+client1
+*.txt
+*.png
+*.py
+.vscode
