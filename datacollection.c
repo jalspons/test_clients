@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 199309L
-
 #include "datacollection.h"
 
 #include <arpa/inet.h>
@@ -14,6 +12,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include "state.h"
 #include "util.h"
 
 #define NOREAD_VALUE "--"
@@ -129,9 +128,13 @@ void dc_run_periodic_updates(struct dataconnection *connections, int connsize,
     // TODO: error handling
     (void)dc_open(&connections[i]);
   }
-  while (1) {
+
+  struct program_state *prog_state = state_get();
+  while (prog_state->running) {
     // Collect data samples
     sleep_ms(periodms);
+    if (!prog_state->running) break;
+
     // Read data from connections
     for (int i = 0; i < connsize; i++) {
       struct dataconnection *conn = &connections[i];

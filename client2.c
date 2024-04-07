@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "datacollection.h"
+#include "state.h"
 #include "util.h"
 
 enum output3_control_state { START = 0, LOW = 1, HIGH = 2 };
@@ -41,6 +42,9 @@ void output3_control_callback(struct controlparameters *params, float value) {
 }
 
 int main(int argc, char **argv) {
+  // Initialize program state
+  state_init();
+
   // Init controller
   struct controller ctrl = {
       .port = 4000,
@@ -64,7 +68,10 @@ int main(int argc, char **argv) {
   // Start running datacollection
   dc_run_periodic_updates(comms, ARRAY_SIZE(comms), 20);
 
+  // Cleaning
   // TODO: error handling
   ctrl_cleanup(&ctrl);
+  state_cleanup();
+
   return 0;
 }
