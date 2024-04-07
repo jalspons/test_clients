@@ -1,8 +1,12 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include "datacollection.h"
 
 #include <arpa/inet.h>
+#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,16 +14,18 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include "util.h"
+
 #define NOREAD_VALUE "--"
 
-static void conn_close(struct dataconnection *conn) {
+static void dc_close(struct dataconnection *conn) {
   close(conn->fd);
-  conn->fd = 0;
+  conn->fd = -1;
 }
 
-static int conn_open(struct dataconnection *conn) {
+static int dc_open(struct dataconnection *conn) {
   // Don't connect, if socket already connected
-  if (conn->fd > 0) {
+  if (conn->fd >= 0) {
     return 0;
   }
 
@@ -27,6 +33,7 @@ static int conn_open(struct dataconnection *conn) {
   struct sockaddr_in serv_addr = {0};
 
   if ((conn->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    // printf("Failed to create socket for conn %u\n", conn->id);
     return -1;
   }
 
@@ -36,14 +43,14 @@ static int conn_open(struct dataconnection *conn) {
 
   if ((ret = connect(conn->fd, (struct sockaddr *)&serv_addr,
                      sizeof(serv_addr))) < 0) {
-    conn_close(conn);
+    dc_close(conn);
     return -1;
   }
 
   return 0;
 }
 
-static int conn_read(struct dataconnection *conn) {
+static int dc_read(struct dataconnection *conn) {
   int ret;
   int total = 0;
 
@@ -84,18 +91,23 @@ static int conn_read(struct dataconnection *conn) {
   return 0;
 }
 
-static unsigned long long get_timestamp_millis() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+static void dc_control_actions(struct dataconnection *conn) {
+  // No control actions defined, return
+  if (conn->controls == NULL) return;
+  // No new value read, return
+  if (conn->value[0] == 0) return;
+
+  float value = strtof(conn->value, NULL);
+  conn->controls->control_callback(conn->controls, value);
 }
 
-static void report_readings(struct dataconnection *connections, int connsize) {
+static void dc_report_readings(struct dataconnection *connections,
+                               int connsize) {
   char jsonbuf[2048] = {0};
   jsonbuf[0] = '{';
   // Timestamp
   snprintf(&jsonbuf[strlen(jsonbuf)], sizeof(jsonbuf) - strlen(jsonbuf) - 1,
-           "\"timestamp\":%llu,", get_timestamp_millis());
+           "\"timestamp\":%" PRIu64 ",", get_timestamp_millis());
   // Output data
   for (int i = 0; i < connsize; i++) {
     snprintf(&jsonbuf[strlen(jsonbuf)], sizeof(jsonbuf) - strlen(jsonbuf) - 1,
@@ -107,32 +119,34 @@ static void report_readings(struct dataconnection *connections, int connsize) {
   printf("%s\n", jsonbuf);
 }
 
-/// @brief Run datacollection routine
-/// @param connections data connections to be used
-/// @param connsize length of connections
-/// @param periodms length of sampling period
-void datacollect_run_periodic_updates(struct dataconnection *connections,
-                                      int connsize, int periodms) {
+void dc_run_periodic_updates(struct dataconnection *connections, int connsize,
+                             int periodms) {
   // Connect sockets
   for (int i = 0; i < connsize; i++) {
+    // Ensure that control is either not in use or in use and defined properly
+    assert((NULL == connections[i].controls ||
+            NULL != connections[i].controls->control_callback) == 1);
     // TODO: error handling
-    (void)conn_open(&connections[i]);
+    (void)dc_open(&connections[i]);
   }
   while (1) {
     // Collect data samples
-    usleep(periodms * 1000);
+    sleep_ms(periodms);
     // Read data from connections
     for (int i = 0; i < connsize; i++) {
-      if (conn_read(&connections[i]) < 0) {
+      struct dataconnection *conn = &connections[i];
+      if (dc_read(conn) < 0) {
         // Error, close connection and reconnect
-        conn_close(&connections[i]);
-        conn_open(&connections[i]);
+        dc_close(conn);
+        dc_open(conn);
       }
+      // Control actions based on value
+      dc_control_actions(conn);
     }
-    report_readings(connections, connsize);
+    dc_report_readings(connections, connsize);
   }
   // Close connections
   for (int i = 0; i < connsize; i++) {
-    conn_close(&connections[i]);
+    dc_close(&connections[i]);
   }
 }

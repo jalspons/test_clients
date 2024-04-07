@@ -29,6 +29,14 @@ Data is reported on STDOUT in JSON format. JSON is commonly used format and has 
 
 Create a system only collecting data from multiple connections periodically and printing the values to stdout.
 
+### Client2:
+
+Data collection module needs structural changes to support the control interface. Control interface would be nice to have as a separate module to allow separation from data collection.
+
+Controller logic could be defined in client per-output basis. One way to do this is to define controller parameters with data collection connection data. However, controller usage should be optional in connection, so that connections can work without control parameters. Therefore, it would be better to store pointer to data structure and use the pointer value to check if control feature is in use.
+
+Controller actions contain detailed parameters, so this could be defined on application level, in this case directly on client2 module. The goal is to adjust output1 signal based on the data received on output3. Controller action can be coupled to connection with a callback function that can be called after reading new value from socket.
+
 ## Details of data sources:
 
 **Output 1**
